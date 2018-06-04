@@ -5,6 +5,11 @@ from bisect import bisect_left
 from distutils.version import LooseVersion
 from itertools import cycle
 from operator import itemgetter, add
+from numpy import diff
+
+# from ..utils import funcname, import_required
+# from ..core import istask
+# from ..compatibility import apply
 
 from importlib import import_module
 
@@ -126,41 +131,59 @@ def plot_resources(results, palette='Viridis', **kwargs):
     defaults.update((k, v) for (k, v) in kwargs.items() if k in
                     _get_figure_keywords())
     if results:
-        t, mem, cpu, pmem, rio, wio = zip(*results)
+        t, cpu, pmem, rss, uss, pss, rio, wio = zip(*results)
+        rio = [0] + list(diff(rio))
+        wio = [0] + list(diff(wio))	
+
         left, right = min(t), max(t)
         t = [i - left for i in t]
-        p1 = bp.figure(y_range=fix_bounds(0, max(cpu), 100),
+        p1 = bp.figure(y_range=fix_bounds(0, 1.1*max(cpu), 100),
                       x_range=fix_bounds(0, right - left, 1),
                       **defaults)
-        p2 = bp.figure(y_range=fix_bounds(0, max(rio), 100),
+        p2 = bp.figure(y_range=fix_bounds(0, 1.1*max(rss), 100),
+                      x_range=fix_bounds(0, right - left, 1),
+                      **defaults)
+        p3 = bp.figure(y_range=fix_bounds(0, 1.1*max(rio), 100),
                       x_range=fix_bounds(0, right - left, 1),
                       **defaults)
 
     else:
-        t = mem = cpu = pmem = rio = wio = []
-        t = mem = cpu = []
+        t = cpu = pmem = rss = uss = pss = rio = wio = []
+
         p1 = bp.figure(y_range=(0, 100), x_range=(0, 1), **defaults)
         p2 = bp.figure(y_range=(0, 100), x_range=(0, 1), **defaults)
+        p3 = bp.figure(y_range=(0, 100), x_range=(0, 1), **defaults)
+
     colors = palettes.all_palettes[palette][6]
 
     p1.line(t, cpu, color=colors[0], line_width=4, legend='% CPU')
     p1.yaxis.axis_label = "% CPU"
-    p1.extra_y_ranges = {'memory': Range1d(*fix_bounds(min(mem) if mem else 0, max(mem) if mem else 100, 100))}
-    p1.line(t, mem, color=colors[2], y_range_name='memory', line_width=4,
-           legend='Memory')
+#     p1.extra_y_ranges = {'memory': Range1d(*fix_bounds(0, 1.2*max(pmem) if pmem else 100, 100))}
+#     p1.line(t, pmem, color=colors[2], y_range_name='memory', line_width=4, legend='Memory')
     p1.xaxis.axis_label = "Time (s)"
-    p1.add_layout(LinearAxis(y_range_name='memory', axis_label='Memory (MB)'), 'right')
+#     p1.add_layout(LinearAxis(y_range_name='memory', axis_label='Memory (MB)'), 'right')
 
 
-    p2.line(t, rio, color=colors[3], line_width=4, legend='I/O Reads')
-    p2.yaxis.axis_label = "I/O Reads (MB)"
-    p2.extra_y_ranges = {'iowrites': Range1d(*fix_bounds(min(wio) if wio else 0, max(wio) if wio else 100, 100))}
-    p2.line(t, wio, color=colors[4], y_range_name='iowrites', line_width=4, legend='I/O Writes (MB)')
+    p2.line(t, rss, color=colors[2], line_width=4, legend='Memory')
+    p2.yaxis.axis_label = "RSS Memory (MB)"
+
+    p2.extra_y_ranges = {'uss': Range1d(*fix_bounds(0, 1.1*max(uss) if uss else 100, 100))}
+    p2.line(t, uss, color=colors[1], y_range_name='uss', line_width=4, legend='USS Memory (MB)')
+    p2.add_layout(LinearAxis(y_range_name='uss', axis_label='USS Memory (MB)'), 'right')
+
     p2.xaxis.axis_label = "Time (s)"
-    p2.add_layout(LinearAxis(y_range_name='iowrites', axis_label='I/O Writes (MB)'), 'right')
 
 
-    p = column(p1, p2)
+    p3.line(t, rio, color=colors[3], line_width=4, legend='I/O Reads')
+    p3.yaxis.axis_label = "I/O Reads (MB)"
+
+    p3.extra_y_ranges = {'iowrites': Range1d(*fix_bounds(0, 1.1*max(wio) if wio else 100, 100))}
+    p3.line(t, wio, color=colors[4], y_range_name='iowrites', line_width=4, legend='I/O Writes (MB)')
+    p3.add_layout(LinearAxis(y_range_name='iowrites', axis_label='I/O Writes (MB)'), 'right')
+
+    p3.xaxis.axis_label = "Time (s)"
+
+    p = column(p1, p2, p3)
     return p
 
 

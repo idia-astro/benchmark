@@ -1,7 +1,33 @@
+from __future__ import absolute_import, division, print_function
+
 import os
 import subprocess
 import csv
 from datetime import datetime
+import concurrent.futures
+from profile import ResourceProfiler
+
+
+def profile_function( fn, *args):
+        """
+        Use the Profile context manager to record the runtime performance profile of a 
+        users-suplied function
+
+        Args:
+            fn: A callable tat takes as many arguments as passed in 'args'
+            
+        Returns:
+            rprof: An object with a list of arrays, each one representing a runtime 
+            profile of a performance variable
+
+        Raises:
+            Exception: If fn(*args) raises for any values.
+        """
+
+        with ResourceProfiler(dt=0.1) as rprof:
+            fn(*args)
+        return rprof
+
 
 class Benchmark:
     """Benchmarking for IDIA Pipeline"""
@@ -13,11 +39,19 @@ class Benchmark:
                   'Thread(s) per core', 'Core(s) per socket', 'Socket(s)', 'Model',
                   'Model name', 'MemTotal', 'CPU MHz', 'Description']
     
-    def __init__(self):
+    def __init__(self, container_path = None, exec_path = "python", testid = "", description = "", profile=True, dt_profile=1.0):
         self.bench_dict["Time"] = datetime.now().strftime('%H:%M:%S')
         self.bench_dict["Date"] = datetime.now().strftime('%Y-%m-%d')
         self.bench_dict.update(self._sysinfo())
         self.bench_dict.update(self._meminfo())
+
+        # Set test properties
+        self.container_path = container_path
+        self.exec_path = exec_path
+        self.testid = testid
+        self.description = description
+        self.do_profile = profile
+        self.dt_profile = dt_profile
         
     def _sysinfo(self):
         """Capture environment system information"""
@@ -70,7 +104,8 @@ class Benchmark:
         read_times = read_times[1:]
         read_ave = self._ddio_mem_average(read_times)
         self.update_bench_dict({"DDIORead (MB/s)": read_ave})
-        
+
+
     def _ddio_mem_average(self, rw_times):
         """Convert a list of values from ddio runtimes to an average with units MB/s"""
         r_value = []
@@ -109,16 +144,20 @@ class Benchmark:
             else:
                 writer.writerow(data)
 
-    def execute_script(self, script_name, container_path = None, exec_path = "python2", testid = "", description = "", profile=True):
+    def write_to_database(self):
+        data = self.bench_dict
+		# write data to mongodb
+
+    def execute_script(self, script_name ):
         #check container file
-        self.update_bench_dict({"TestID": testid})
-        self.update_bench_dict({"Desctription": description})
-        self.update_bench_dict({"Container": container_path.split("/")[-1]})
-        if container_path:
-            if os.path.isfile(container_path):
+        self.update_bench_dict({"TestID": self.testid})
+        self.update_bench_dict({"Desctription": self.description})
+        self.update_bench_dict({"Container": self.container_path.split("/")[-1]})
+        if self.container_path:
+            if os.path.isfile(self.container_path):
                 args = 'singularity exec'
-                args += ' ' + container_path + ' ' + exec_path + ' ' + script_name
-                print args
+                args += ' ' + self.container_path + ' ' + self.exec_path + ' ' + script_name
+                print( args )
                 time_start = datetime.now()
                 proc = subprocess.Popen(args, stdout=subprocess.PIPE,
                         stderr = subprocess.PIPE, shell=True)
@@ -126,70 +165,78 @@ class Benchmark:
                 time_end = datetime.now()
                 test_time = time_end - time_start
                 self.update_bench_dict({'RunTime (s)': str(test_time.seconds)})
-                print out, err
+                print( out, err )
         else:
             args = exec_path
             args += ' ' + script_name
             time_start = datetime.datetime.now()
             proc = subprocess.Popen(args, stdout=subprocess.PIPE,
                     stderr = subprocess.PIPE, shell=True)
-
             out, err = proc.communicate()
             time_end = datetime.datetime.now()
             test_time = time_end - time_start
             self.update_bench_dict({"Runtime (s)": str(test_time.seconds)})
-            print out, err
+            print( out, err )
 
-    def execute_function(self, function, container_path = None, testid = "", description = "", profile=True, dt_profile=1.0):
-	"""Run benchmarking code on a function inside of a python environment.
 
-	Args:
-	    function (object): a function defined in the current scope, the function can be called with or without arguments.  Use lambda notation to call a function with arguments ('see example below').
-	    container_path (str, optional): Full path to a singularity container.  The function will be executed in by the defualt python version in the container.  All libraries and other requirements for the function must be available in the container. Defaults to None.  
-	    testid (str, optional): An optional id which will be passed to the output database. Defaults to empty string.
-	    description (str, optional): A descriptive string containing any desired information that is not automatically included.  Will be passed as-is to the database.  Defaults to empty string.
-	    profile (boolean, optional): Turn off runtime profiling.  Defaults to True. 
-	    dt_profile (float, optional): Change the profiling time interval.  Defaults to 1 second.
-	
-	Returns:
-	    bool: True if successful, False otherwise.
 
-	Raises:
-	    AttributeError: ...
-	    ValueError: ...
+
+
+    def execute_function(self, function, *args ):
+        """Run benchmarking code on a function inside of a python environment.
+
+        Args:
+            function (object): a function defined in the current scope, the function can be called with or without arguments.  Use lambda notation to call a function with arguments ('see example below').
+            container_path (str, optional): Full path to a singularity container.  The function will be executed in by the defualt python version in the container.  All libraries and other requirements for the function must be available in the container. Defaults to None.  
+            testid (str, optional): An optional id which will be passed to the output database. Defaults to empty string.
+            description (str, optional): A descriptive string containing any desired information that is not automatically included.  Will be passed as-is to the database.  Defaults to empty string.
+            profile (boolean, optional): Turn off runtime profiling.  Defaults to True. 
+            dt_profile (float, optional): Change the profiling time interval.  Defaults to 1 second.
+
+        Returns:
+            bool: True if successful, False otherwise.
+
+        Raises:
+            AttributeError: ...
+            ValueError: ...
  
-	ex.: 
-	def test_function(x):
-		sleep(0.25)
-		print "Executing test_function({})...".format(x)
-    		a = np.random.random(size=(1000,1000))
-    		q, r = np.linalg.qr(a)
-    		a2 = q.dot(r)
-	mybenchmark = Benchmark()
-	mybenchmark.execute_function( lambda: test_function(4), profile=True )
+        ex.: 
+        def test_function(x):
+            sleep(0.25)
+            print("Executing test_function({})...".format(x) )
+                a = np.random.random(size=(1000,1000))
+                q, r = np.linalg.qr(a)
+                a2 = q.dot(r)
+        mybenchmark = Benchmark()
+        mybenchmark.execute_function( lambda: test_function(4), profile=True )
 
-	"""
+        """
 
-        self.update_bench_dict({"TestID": testid})
-        self.update_bench_dict({"Desctription": description})
+        self.update_bench_dict({"TestID": self.testid})
+        self.update_bench_dict({"Desctription": self.description})
         self.update_bench_dict({"Container": os.environ['SINGULARITY_NAME']})
 
         time_start = datetime.now()
-        if profile:
-            from profile import ResourceProfiler
-            with ResourceProfiler(dt=dt_profile) as rprof:
-                function()
-            results = rprof.results
+        if self.do_profile:
+#             with ResourceProfiler(dt=dt_profile) as rprof:
+#                 function()
+
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                result = executor.submit( profile_function, function, *args ).result()    
+
             from bokeh.io import output_notebook
-            rprof.visualize()
+#             rprof.visualize()
         else:
-            function()
+            function(*args)
+            rprof = None
+
         time_end = datetime.now()
         test_time = time_end - time_start
-        print 'Test finished - RunTime (s): ' + str(test_time.seconds)
+        print( 'Test finished - RunTime (s): ' + str(test_time.seconds) )
         self.update_bench_dict({'RunTime (s)': str(test_time.seconds)})
-        
-				
+
+        return result
+
 
     def update_bench_dict(self,dict_):
         self.bench_dict.update(dict_)

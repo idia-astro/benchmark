@@ -19,7 +19,7 @@ def import_required(mod_name, error_msg):
 
 
 # Stores execution data for each task
-ResourceData = namedtuple('ResourceData', ('time', 'mem', 'cpu', 'pmem', 'rio', 'wio'))
+ResourceData = namedtuple('ResourceData', ('time', 'cpu', 'pmem', 'rmem', 'umem', 'smem', 'rio', 'wio'))
 
 
 class ResourceProfiler(object):
@@ -136,6 +136,7 @@ class _Tracker(Process):
         self.daemon = True
         self.dt = dt
         self.parent = psutil.Process(current_process().pid)
+        print( "Tracker PID: " + str( current_process().pid ) )
         self.parent_conn, self.child_conn = Pipe()
 
     def shutdown(self):
@@ -162,24 +163,28 @@ class _Tracker(Process):
                 ps = self._update_pids(pid)
                 while not data or not self.child_conn.poll():
                     tic = default_timer()
-                    mem = cpu = pmem = ior = iow = 0
+                    cpu = pmem = rmem = umem = smem = ior = iow = 0
                     for p in ps:
                         try:
+                            cpu1 = p.cpu_percent()
                             mem1 = p.memory_percent()
-                            mem2 = p.memory_info().rss
-                            cpu2 = p.cpu_percent()
-                            io_read = p.io_counters().read_bytes
-                            io_write = p.io_counters().write_bytes
+                            mem2 = p.memory_full_info().rss  
+                            mem3 = p.memory_full_info().uss
+                            mem4 = p.memory_full_info().pss
+                            io1 = p.io_counters().read_bytes
+                            io2 = p.io_counters().write_bytes
                         except Exception: # could be a few different exceptions
                             pass
                         else:
                             # Only increment if both were successful
-                            mem += mem2
-                            cpu += cpu2
+                            cpu += cpu1
                             pmem += mem1
-                            ior += io_read
-                            iow += io_write
-                    data.append((tic, mem / 1e6, cpu, pmem, ior / 1e6, iow / 1e6))
+                            rmem += mem2
+                            umem += mem3
+                            smem += mem4
+                            ior += io1
+                            iow += io2
+                    data.append((tic, cpu, pmem, rmem / 1e6 , umem / 1e6, smem / 1e6, ior / 1e6, iow / 1e6))
                     sleep(self.dt)
             elif msg == 'send_data':
                 self.child_conn.send(data)
