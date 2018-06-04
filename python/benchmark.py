@@ -11,7 +11,7 @@ class Benchmark:
     fieldnames = ['Date', 'Time', 'TestID','RunTime (s)', 'Container', 'DDIOTestSize (MB)', 
                   'DDIORead (MB/s)', 'DDIOWrite (MB/s)', 'Architecture', 'CPU(s)',
                   'Thread(s) per core', 'Core(s) per socket', 'Socket(s)', 'Model',
-                  'Model name', 'MemTotal', 'CPU MHz']
+                  'Model name', 'MemTotal', 'CPU MHz', 'Description']
     
     def __init__(self):
         self.bench_dict["Time"] = datetime.now().strftime('%H:%M:%S')
