@@ -6,6 +6,9 @@ import csv
 from datetime import datetime
 import concurrent.futures
 from profile import ResourceProfiler
+import numpy as np
+
+from utils import dbclient
 
 
 def profile_function( fn, *args):
@@ -34,16 +37,20 @@ class Benchmark:
     
     bench_dict = {}
     path_out = "sysinfo.csv"
-    fieldnames = ['Date', 'Time', 'TestID','RunTime (s)', 'Container', 'DDIOTestSize (MB)', 
+    fieldnames = ['Date', 'Time', 'TestID', 'RunTime', 'Container', 'DDIOTestSize (MB)', 
                   'DDIORead (MB/s)', 'DDIOWrite (MB/s)', 'Architecture', 'CPU(s)',
-                  'Thread(s) per core', 'Core(s) per socket', 'Socket(s)', 'Model',
-                  'Model name', 'MemTotal', 'CPU MHz', 'Description']
+                  'Thread(s) per core', 'CPU MHz', 'MemAvailable', 'MemFree', 'Description', 
+                  'MemMax', 'MemMean', 'MemTot', 'CPUMax', 'CPUMean', 'IOMeanR', 'IOMeanW', 
+                  'IOTotR', 'IOTotW']
+                  # 'Core(s) per socket', 'Socket(s)', 'Model', 'Model name', 
     
     def __init__(self, container_path = None, exec_path = "python", testid = "", description = "", profile=True, dt_profile=1.0):
         self.bench_dict["Time"] = datetime.now().strftime('%H:%M:%S')
         self.bench_dict["Date"] = datetime.now().strftime('%Y-%m-%d')
         self.bench_dict.update(self._sysinfo())
         self.bench_dict.update(self._meminfo())
+        self.graphs = []
+        self.stats = {}
 
         # Set test properties
         self.container_path = container_path
@@ -52,6 +59,10 @@ class Benchmark:
         self.description = description
         self.do_profile = profile
         self.dt_profile = dt_profile
+        
+        
+        self.collection = dbclient()
+
         
     def _sysinfo(self):
         """Capture environment system information"""
@@ -122,7 +133,7 @@ class Benchmark:
         for k in r_value:
             summ = summ + k  
 
-        ave_rw_time = summ/len(r_value)/(1024**2)
+        ave_rw_time = summ/len(r_value)/(1024.**2)
         return ("%0.2f" % ave_rw_time)
 
     def write_to_csv(self):
@@ -145,13 +156,21 @@ class Benchmark:
                 writer.writerow(data)
 
     def write_to_database(self):
+        # write data to mongodb
         data = self.bench_dict
-		# write data to mongodb
+        dbdict = {}
+        for fn in self.fieldnames:
+            dbdict[fn] = data[fn]
+        dbdict['graphs'] = self.graphs
+        
+        self.collection.insert_one( dbdict )
+
+
 
     def execute_script(self, script_name ):
         #check container file
         self.update_bench_dict({"TestID": self.testid})
-        self.update_bench_dict({"Desctription": self.description})
+        self.update_bench_dict({"Description": self.description})
         self.update_bench_dict({"Container": self.container_path.split("/")[-1]})
         if self.container_path:
             if os.path.isfile(self.container_path):
@@ -164,7 +183,7 @@ class Benchmark:
                 out, err = proc.communicate()
                 time_end = datetime.now()
                 test_time = time_end - time_start
-                self.update_bench_dict({'RunTime (s)': str(test_time.seconds)})
+                self.update_bench_dict({'RunTime': str( test_time.microseconds / 1000. )})
                 print( out, err )
         else:
             args = exec_path
@@ -175,12 +194,56 @@ class Benchmark:
             out, err = proc.communicate()
             time_end = datetime.datetime.now()
             test_time = time_end - time_start
-            self.update_bench_dict({"Runtime (s)": str(test_time.seconds)})
+            self.update_bench_dict({"Runtime": str( test_time.microseconds / 1000. ) })
             print( out, err )
 
 
+    def compute_stats(self):
+        rdata = self.graphs
 
+        # memory alocation integrated over time [MB * s]
+        t_diff = np.diff(rdata['t'])
+        tot_memory = np.sum([ v_i*t_i for v_i, t_i in zip(t_diff, rdata['umem'][1:])])
+        
+        # Memory
+        max_memory = np.amax(rdata['umem'])
+        mean_memory = np.mean(rdata['umem'])
+        
+        # mean cpu
+        mean_cpu = np.mean(rdata['cpu'])
+        max_cpu = np.amax(rdata['cpu'])
+        
+        # mean IO Reads
+        mean_rio = np.average(list(np.diff(rdata['rio'])), axis=0, weights=1./t_diff)
+        mean_wio = np.average(list(np.diff(rdata['wio'])), axis=0, weights=1./t_diff)
+        
+        tot_rio = rdata['rio'][-1] - rdata['rio'][0]
+        tot_wio = rdata['wio'][-1] - rdata['wio'][0]
+        
+        self.update_bench_dict({"MemMax": "{:.2f}".format(max_memory)})
+        self.update_bench_dict({"MemMean": "{:.2f}".format(mean_memory)})
+        self.update_bench_dict({"MemTot": "{:.2f}".format(tot_memory)})
 
+        self.update_bench_dict({"CPUMax": "{:.2f}".format(max_cpu)})
+        self.update_bench_dict({"CPUMean": "{:.2f}".format(mean_cpu)})
+
+        self.update_bench_dict({"IOMeanR": "{:.2f}".format(mean_rio)})
+        self.update_bench_dict({"IOMeanW": "{:.2f}".format(mean_wio)})
+        
+        self.update_bench_dict({"IOTotR": "{:.2f}".format(tot_rio)})
+        self.update_bench_dict({"IOTotW": "{:.2f}".format(tot_wio)})
+        
+        rstats = {"MemMax": max_memory,
+                  "MemMean": mean_memory,
+                  "MemTot": tot_memory,
+                  "CPUMax": max_cpu,
+                  "CPUMean": mean_cpu,    
+                  "IOMeanR": mean_rio,
+                  "IOMeanW": mean_wio,
+                  "IOTotR": tot_rio,
+                  "IOTotW": tot_wio}
+        
+        return rstats
 
     def execute_function(self, function, *args ):
         """Run benchmarking code on a function inside of a python environment.
@@ -213,7 +276,7 @@ class Benchmark:
         """
 
         self.update_bench_dict({"TestID": self.testid})
-        self.update_bench_dict({"Desctription": self.description})
+        self.update_bench_dict({"Description": self.description})
         self.update_bench_dict({"Container": os.environ['SINGULARITY_NAME']})
 
         time_start = datetime.now()
@@ -224,7 +287,7 @@ class Benchmark:
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 result = executor.submit( profile_function, function, *args ).result()    
 
-            from bokeh.io import output_notebook
+#            from bokeh.io import output_notebook
 #             rprof.visualize()
         else:
             function(*args)
@@ -232,12 +295,34 @@ class Benchmark:
 
         time_end = datetime.now()
         test_time = time_end - time_start
-        print( 'Test finished - RunTime (s): ' + str(test_time.seconds) )
-        self.update_bench_dict({'RunTime (s)': str(test_time.seconds)})
+        print( 'Test finished - RunTime (s): ' + str( test_time.microseconds / 1000. ) )
+        self.update_bench_dict({'RunTime': str( test_time.microseconds / 1000. )})
+        self.results = result
 
-        return result
+        res = result.results
+        rdata = {
+            't': [r.time for r in res],
+            'cpu': [r.cpu for r in res],
+            'pmem': [r.umem for r in res],
+            'rmem': [r.umem for r in res],
+            'umem': [r.umem for r in res],
+            'smem': [r.umem for r in res],
+            'rio': [r.rio for r in res],
+            'wio': [r.wio for r in res]
+        }
+        self.graphs = rdata
 
+        self.stats = self.compute_stats()
+
+        return True
+
+
+    def visualize():
+        self.results.visualize()
 
     def update_bench_dict(self,dict_):
         self.bench_dict.update(dict_)
-        
+    
+    def set_testid(self, testid):
+        self.testID = testid
+
