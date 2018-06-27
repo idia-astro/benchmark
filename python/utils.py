@@ -50,7 +50,8 @@ class OpenMPRuntime(object):
 from sshtunnel import SSHTunnelForwarder
 from pymongo import MongoClient
 
-def dbclient():
+
+def dbclient_tunnel():
 
     '''
     Set up the sshtunnel connection authenticating with a private key pair.
@@ -67,6 +68,13 @@ def dbclient():
     
     client = MongoClient('127.0.0.1', server.local_bind_port)
     
+    db = client['local']
+    collection = db['results']
+    return collection
+    
+def dbclient():
+	client = MongoClient('10.0.0.169')
+
     db = client['local']
     collection = db['results']
     return collection
