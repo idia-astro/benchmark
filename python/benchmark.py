@@ -156,7 +156,7 @@ class Benchmark:
         # write data to mongodb
         data = self.bench_dict
         dbdict = {}
-        for fn in fieldnames:
+        for fn in self.fieldnames:
             dbdict[fn] = data.get(fn, '')
         dbdict['graphs'] = self.graphs
         self.collection.insert_one( dbdict )
