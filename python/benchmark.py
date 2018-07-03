@@ -45,8 +45,6 @@ class Benchmark:
                   # 'Core(s) per socket', 'Socket(s)', 'Model', 'Model name', 
     
     def __init__(self, container_path = None, exec_path = "python", testid = "", description = "", profile=True, dt_profile=1.0):
-        self.bench_dict["Time"] = datetime.now().strftime('%H:%M:%S')
-        self.bench_dict["Date"] = datetime.now().strftime('%Y-%m-%d')
         self.bench_dict.update(self._sysinfo())
         self.bench_dict.update(self._meminfo())
         self.graphs = []
@@ -59,8 +57,7 @@ class Benchmark:
         self.description = description
         self.do_profile = profile
         self.dt_profile = dt_profile
-        
-        
+
         self.collection = dbclient()
 
         
@@ -159,43 +156,10 @@ class Benchmark:
         # write data to mongodb
         data = self.bench_dict
         dbdict = {}
-        for fn in self.fieldnames:
-            dbdict[fn] = data[fn]
+        for fn in fieldnames:
+            dbdict[fn] = data.get(fn, '')
         dbdict['graphs'] = self.graphs
-        
         self.collection.insert_one( dbdict )
-
-
-
-    def execute_script(self, script_name ):
-        #check container file
-        self.update_bench_dict({"TestID": self.testid})
-        self.update_bench_dict({"Description": self.description})
-        self.update_bench_dict({"Container": self.container_path.split("/")[-1]})
-        if self.container_path:
-            if os.path.isfile(self.container_path):
-                args = 'singularity exec'
-                args += ' ' + self.container_path + ' ' + self.exec_path + ' ' + script_name
-                print( args )
-                time_start = datetime.now()
-                proc = subprocess.Popen(args, stdout=subprocess.PIPE,
-                        stderr = subprocess.PIPE, shell=True)
-                out, err = proc.communicate()
-                time_end = datetime.now()
-                test_time = time_end - time_start
-                self.update_bench_dict({'RunTime': str( test_time.microseconds / 1000. )})
-                print( out, err )
-        else:
-            args = exec_path
-            args += ' ' + script_name
-            time_start = datetime.datetime.now()
-            proc = subprocess.Popen(args, stdout=subprocess.PIPE,
-                    stderr = subprocess.PIPE, shell=True)
-            out, err = proc.communicate()
-            time_end = datetime.datetime.now()
-            test_time = time_end - time_start
-            self.update_bench_dict({"Runtime": str( test_time.microseconds / 1000. ) })
-            print( out, err )
 
 
     def compute_stats(self):
@@ -245,6 +209,45 @@ class Benchmark:
         
         return rstats
 
+
+    def execute_script(self, script_name ):
+        #check container file
+        self.update_bench_dict({"TestID": self.testid})
+        self.update_bench_dict({"Description": self.description})
+        self.update_bench_dict({"Container": self.container_path.split("/")[-1]})
+        self.bench_dict["Time"] = datetime.now().strftime('%H:%M:%S')
+        self.bench_dict["Date"] = datetime.now().strftime('%Y-%m-%d')
+
+        if self.container_path:
+            if os.path.isfile(self.container_path):
+                args = 'singularity exec'
+                args += ' ' + self.container_path + ' ' + self.exec_path + ' ' + script_name
+                print( args )
+                time_start = datetime.now()
+                proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                        stderr = subprocess.PIPE, shell=True)
+                out, err = proc.communicate()
+                time_end = datetime.now()
+                time_diff = time_end - time_start
+                test_time = "{:.3f}".format( (time_diff.seconds + time_diff.microseconds / 1000000.) )
+
+                self.update_bench_dict({'RunTime': test_time })
+                print( out, err )
+        else:
+            args = exec_path
+            args += ' ' + script_name
+            time_start = datetime.datetime.now()
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                    stderr = subprocess.PIPE, shell=True)
+            out, err = proc.communicate()
+            time_end = datetime.datetime.now()
+            time_diff = time_end - time_start
+            test_time = "{:.3f}".format( (test_time.seconds + test_time.microseconds / 1000000.) )
+            self.update_bench_dict({"Runtime": test_time})
+            print( out, err )
+
+
+
     def execute_function(self, function, *args ):
         """Run benchmarking code on a function inside of a python environment.
 
@@ -278,6 +281,8 @@ class Benchmark:
         self.update_bench_dict({"TestID": self.testid})
         self.update_bench_dict({"Description": self.description})
         self.update_bench_dict({"Container": os.environ['SINGULARITY_NAME']})
+        self.bench_dict["Time"] = datetime.now().strftime('%H:%M:%S')
+        self.bench_dict["Date"] = datetime.now().strftime('%Y-%m-%d')
 
         time_start = datetime.now()
         if self.do_profile:
@@ -294,9 +299,11 @@ class Benchmark:
             rprof = None
 
         time_end = datetime.now()
-        test_time = time_end - time_start
-        print( 'Test finished - RunTime (s): ' + str( test_time.microseconds / 1000. ) )
-        self.update_bench_dict({'RunTime': str( test_time.microseconds / 1000. )})
+        time_diff = time_end - time_start
+        test_time = "{:.3f}".format( (time_diff.seconds + time_diff.microseconds / 1000000.) )
+        print( 'Test finished - RunTime (s): ' + test_time )
+
+        self.update_bench_dict({ 'RunTime': test_time })
         self.results = result
 
         res = result.results
