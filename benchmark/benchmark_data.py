@@ -1,7 +1,7 @@
 from utils import dbclient
 import collections
 
-class BenchmarkDBManager:
+class BenchmarkDataManager:
     
     benchmark_list = []
     

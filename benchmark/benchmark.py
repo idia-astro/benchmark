@@ -5,10 +5,10 @@ import subprocess
 import csv
 from datetime import datetime
 import concurrent.futures
-from profile import ResourceProfiler
+from .profiler import ResourceProfiler
 import numpy as np
 
-from utils import dbclient
+from .utils import dbclient
 
 
 def profile_function( fn, *args):
@@ -31,6 +31,18 @@ def profile_function( fn, *args):
             fn(*args)
         return rprof
 
+
+def profile_script( cl_arg, *args):
+        """
+        Use the Profile context manager to record the runtime performance profile of a 
+        users-suplied script
+        """
+
+        with ResourceProfiler(dt=0.1) as rprof:
+            proc = subprocess.Popen(cl_arg, stdout=subprocess.PIPE, stderr = subprocess.PIPE, shell=True)
+            out, err = proc.communicate()
+            print( out, err )
+        return rprof
 
 class Benchmark:
     """Benchmarking for IDIA Pipeline"""
@@ -163,7 +175,20 @@ class Benchmark:
 
 
     def compute_stats(self):
-        rdata = self.graphs
+
+        # First store the graphs as a dictionary of arrays 
+        res = self.results.results
+        rdata = {
+            't': [r.time for r in res],
+            'cpu': [r.cpu for r in res],
+            'pmem': [r.umem for r in res],
+            'rmem': [r.umem for r in res],
+            'umem': [r.umem for r in res],
+            'smem': [r.umem for r in res],
+            'rio': [r.rio for r in res],
+            'wio': [r.wio for r in res]
+        }
+        self.graphs = rdata
 
         # memory alocation integrated over time [MB * s]
         t_diff = np.diff(rdata['t'])
@@ -211,41 +236,58 @@ class Benchmark:
 
 
     def execute_script(self, script_name ):
-        #check container file
-        self.update_bench_dict({"TestID": self.testid})
-        self.update_bench_dict({"Description": self.description})
-        self.update_bench_dict({"Container": self.container_path.split("/")[-1]})
+
+        self.bench_dict["TestID"] = self.testid
+        self.bench_dict["Description"] = self.description
         self.bench_dict["Time"] = datetime.now().strftime('%H:%M:%S')
         self.bench_dict["Date"] = datetime.now().strftime('%Y-%m-%d')
 
         if self.container_path:
             if os.path.isfile(self.container_path):
+                self.update_bench_dict({"Container": self.container_path.split("/")[-1]})
+
                 args = 'singularity exec'
                 args += ' ' + self.container_path + ' ' + self.exec_path + ' ' + script_name
-                print( args )
+                print( "Exectuing command: " + args )
+
                 time_start = datetime.now()
-                proc = subprocess.Popen(args, stdout=subprocess.PIPE,
-                        stderr = subprocess.PIPE, shell=True)
+                proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr = subprocess.PIPE, shell=True)
                 out, err = proc.communicate()
                 time_end = datetime.now()
+
                 time_diff = time_end - time_start
                 test_time = "{:.3f}".format( (time_diff.seconds + time_diff.microseconds / 1000000.) )
-
                 self.update_bench_dict({'RunTime': test_time })
+                print( 'Test finished - RunTime (s): ' + test_time )
                 print( out, err )
+                return True
+            else:
+                return False
         else:
-            args = exec_path
-            args += ' ' + script_name
-            time_start = datetime.datetime.now()
-            proc = subprocess.Popen(args, stdout=subprocess.PIPE,
-                    stderr = subprocess.PIPE, shell=True)
-            out, err = proc.communicate()
-            time_end = datetime.datetime.now()
-            time_diff = time_end - time_start
-            test_time = "{:.3f}".format( (test_time.seconds + test_time.microseconds / 1000000.) )
-            self.update_bench_dict({"Runtime": test_time})
-            print( out, err )
+            args = self.exec_path + ' ' + script_name
+            print( "Exectuing command: " + args )
 
+            time_start = datetime.now()
+            if self.do_profile:
+                with concurrent.futures.ProcessPoolExecutor() as executor:
+                    result = executor.submit( profile_script, args ).result()
+            else:
+                proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr = subprocess.PIPE, shell=True)
+                out, err = proc.communicate()
+                print( out, err )
+                result = None
+            time_end = datetime.now()
+
+            time_diff = time_end - time_start
+            test_time = "{:.3f}".format( (time_diff.seconds + time_diff.microseconds / 1000000.) )
+            print( 'Test finished - RunTime (s): ' + test_time )
+            self.bench_dict["Runtime"] = test_time
+            
+            # Compute and store graphs and stats
+            self.results = result
+            self.stats = self.compute_stats()
+            
+            return True 
 
 
     def execute_function(self, function, *args ):
@@ -280,25 +322,20 @@ class Benchmark:
 
         self.update_bench_dict({"TestID": self.testid})
         self.update_bench_dict({"Description": self.description})
-        self.update_bench_dict({"Container": os.environ['SINGULARITY_NAME']})
+        self.update_bench_dict({"Container": os.environ.get('SINGULARITY_NAME')})
         self.bench_dict["Time"] = datetime.now().strftime('%H:%M:%S')
         self.bench_dict["Date"] = datetime.now().strftime('%Y-%m-%d')
 
+        # This is the context manager that runs the function
         time_start = datetime.now()
         if self.do_profile:
-#             with ResourceProfiler(dt=dt_profile) as rprof:
-#                 function()
-
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 result = executor.submit( profile_function, function, *args ).result()    
-
-#            from bokeh.io import output_notebook
-#             rprof.visualize()
         else:
             function(*args)
-            rprof = None
-
+            result = None
         time_end = datetime.now()
+
         time_diff = time_end - time_start
         test_time = "{:.3f}".format( (time_diff.seconds + time_diff.microseconds / 1000000.) )
         print( 'Test finished - RunTime (s): ' + test_time )
@@ -306,25 +343,12 @@ class Benchmark:
         self.update_bench_dict({ 'RunTime': test_time })
         self.results = result
 
-        res = result.results
-        rdata = {
-            't': [r.time for r in res],
-            'cpu': [r.cpu for r in res],
-            'pmem': [r.umem for r in res],
-            'rmem': [r.umem for r in res],
-            'umem': [r.umem for r in res],
-            'smem': [r.umem for r in res],
-            'rio': [r.rio for r in res],
-            'wio': [r.wio for r in res]
-        }
-        self.graphs = rdata
-
         self.stats = self.compute_stats()
 
         return True
 
 
-    def visualize():
+    def visualize(self):
         self.results.visualize()
 
     def update_bench_dict(self,dict_):

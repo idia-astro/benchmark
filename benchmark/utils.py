@@ -52,7 +52,6 @@ from pymongo import MongoClient
 
 
 def dbclient_tunnel():
-
     '''
     Set up the sshtunnel connection authenticating with a private key pair.
     '''
@@ -65,16 +64,15 @@ def dbclient_tunnel():
         remote_bind_address=('127.0.0.1', 27017)   # local address, does not need to be changed
     )
     server.start()
-    
+
     client = MongoClient('127.0.0.1', server.local_bind_port)
-    
+
     db = client['local']
     collection = db['results']
     return collection
-    
+
 def dbclient():
     client = MongoClient('10.0.0.169')
-
     db = client['local']
     collection = db['results']
     return collection
