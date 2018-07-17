@@ -59,7 +59,7 @@ class ResourceProfiler(object):
     data will only be collected while a dask scheduler is active.
     """
     def __init__(self, dt=1):
-        print("init rprof")
+#         print("init rprof")
         self._dt = dt
         self._entered = False
         self._tracker = None
@@ -83,15 +83,12 @@ class ResourceProfiler(object):
         self._entered = True
         self.clear()
         self._start_collect()
-        print("entering rprof")
         return self
 
     def __exit__(self, *args):
         self._entered = False
-        print("exiting rprof ...")
         self._stop_collect()
         self.close()
-        print("exited rprof")
 #         super(ResourceProfiler, self).__exit__(*args)
 
     def _start(self, dsk):
@@ -113,7 +110,7 @@ class ResourceProfiler(object):
         self.results = []
 
     def _plot(self, **kwargs):
-        from profile_visualize import plot_resources
+        from .profile_visualize import plot_resources
         return plot_resources(self.results, **kwargs)
 
     def visualize(self, **kwargs):
@@ -123,7 +120,7 @@ class ResourceProfiler(object):
         --------
         dask.diagnostics.profile_visualize.visualize
         """
-        from profile_visualize import visualize
+        from .profile_visualize import visualize
         return visualize(self, **kwargs)
 
 
