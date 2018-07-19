@@ -6,6 +6,7 @@ import csv
 from datetime import datetime
 import concurrent.futures
 from .profiler import ResourceProfiler
+from .benchmark_data import BenchmarkDataManager
 import numpy as np
 
 from .utils import dbclient
@@ -307,8 +308,8 @@ class Benchmark:
         Raises:
             AttributeError: ...
             ValueError: ...
- 
-        ex.: 
+
+        ex.:
         def test_function(x):
             sleep(0.25)
             print("Executing test_function({})...".format(x) )
