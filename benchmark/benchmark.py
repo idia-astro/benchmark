@@ -77,10 +77,10 @@ class Benchmark:
     def _sysinfo(self):
         """Capture environment system information"""
         sys = subprocess.check_output(['lscpu'])
-        sys_info = sys.split('\n')
+        sys_info = sys.split(b'\n')
         sys_dict = {}
         for info in sys_info[:-1]:
-            field, data = info.split(":")
+            field, data = info.split(b":")
             sys_dict[field] = data.strip()
 
         return sys_dict
