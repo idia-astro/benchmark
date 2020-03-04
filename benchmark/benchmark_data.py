@@ -1,6 +1,6 @@
 from __future__ import absolute_import, division, print_function
 
-from .utils import dbclient
+from .utils import dbclient, dbclient_tunnel
 import collections
 import pymongo
 
@@ -11,7 +11,7 @@ class BenchmarkDataManager:
     
     def __init__(self):
         
-        self.collection = dbclient()
+        self.collection = dbclient_tunnel()
         self.colnames = self.getcolnames()
     
     def query(self, query, sortby = False, columns = ['TestID', 'Description', 'Date', 'CPUMax', 'MemMax', 'IOTotW', 'IOTotR'], ascending = False, limit = 100):

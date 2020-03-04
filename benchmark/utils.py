@@ -18,6 +18,8 @@ Example:
 import ctypes 
 from ctypes.util import find_library
 
+mongodb_ip_address = "10.102.26.82" # "10.0.0.169"
+
 class OpenMPRuntime(object):
     '''
     Access OpenMP Runtime Library parameters
@@ -57,9 +59,9 @@ def dbclient_tunnel():
     '''
 
     server = SSHTunnelForwarder(
-        "10.0.0.169",     # IP address of the database server
+        mongodb_ip_address,     # IP address of the database server
         ssh_username="ubuntu",
-        ssh_pkey="/users/jbochenek/.ssh/mongodb_keypair.key",
+        ssh_pkey="/users/jbochenek/.ssh/htc-compute_keypair_2",
         ssh_private_key_password="",
         remote_bind_address=('127.0.0.1', 27017)   # local address, does not need to be changed
     )
@@ -72,7 +74,7 @@ def dbclient_tunnel():
     return collection
 
 def dbclient():
-    client = MongoClient('10.0.0.169')
+    client = MongoClient( mongodb_ip_address )
     db = client['local']
     collection = db['results']
     return collection

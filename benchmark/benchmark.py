@@ -9,7 +9,7 @@ from .profiler import ResourceProfiler
 from .benchmark_data import BenchmarkDataManager
 import numpy as np
 
-from .utils import dbclient
+from .utils import dbclient_tunnel
 
 
 def profile_function( fn, *args):
@@ -18,7 +18,7 @@ def profile_function( fn, *args):
         users-suplied function
 
         Args:
-            fn: A callable tat takes as many arguments as passed in 'args'
+            fn: A callable function that takes as many arguments as passed in '*args'
             
         Returns:
             rprof: An object with a list of arrays, each one representing a runtime 
@@ -45,8 +45,25 @@ def profile_script( cl_arg, *args):
             print( out, err )
         return rprof
 
-class Benchmark:
-    """Benchmarking for IDIA Pipeline"""
+class Profiler:
+    """
+    Profiling for Astronomy Pipelines
+        
+    Args:
+        container_path (str, optional): Full path to a singularity container.  The 
+            function will be executed in by the defualt python version in the container.  
+            All libraries and other requirements for the function must be available in 
+            the container. Defaults to None.  
+        testid (str, optional): An optional id which will be passed to the output 
+            database. Defaults to empty string.
+        description (str, optional): A descriptive string containing any desired 
+            information that is not automatically included.  Will be passed as-is to 
+            the database.  Defaults to empty string.
+        profile (boolean, optional): Turn off runtime profiling.  Defaults to True. 
+        dt_profile (float, optional): Change the profiling time interval.  Defaults to 
+            1 second.
+
+    """
     
     bench_dict = {}
     path_out = "sysinfo.csv"
@@ -71,7 +88,7 @@ class Benchmark:
         self.do_profile = profile
         self.dt_profile = dt_profile
 
-        self.collection = dbclient()
+        self.collection = dbclient_tunnel()
 
         
     def _sysinfo(self):
@@ -187,7 +204,10 @@ class Benchmark:
             'umem': [r.umem for r in res],
             'smem': [r.umem for r in res],
             'rio': [r.rio for r in res],
-            'wio': [r.wio for r in res]
+            'wio': [r.wio for r in res],
+            'nrio': [r.nrio for r in res],
+            'nwio': [r.nwio for r in res]
+
         }
         self.graphs = rdata
 
@@ -270,7 +290,7 @@ class Benchmark:
 
             time_start = datetime.now()
             if self.do_profile:
-                with concurrent.futures.ProcessPoolExecutor() as executor:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
                     result = executor.submit( profile_script, args ).result()
             else:
                 proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr = subprocess.PIPE, shell=True)
@@ -291,17 +311,23 @@ class Benchmark:
             return True 
 
 
+    def distributed_function(self, function):
+        """
+        Run a distrubted function - right now it works with CASA functions in an MPI environment.
+        
+        Args:
+            Function with one or more calls to a CASA task.
+        """
+
+
     def execute_function(self, function, *args ):
-        """Run benchmarking code on a function inside of a python environment.
+        """Run Profiling code on a function inside of a python environment.
 
         Args:
-            function (object): a function defined in the current scope, the function can be called with or without arguments.  Use lambda notation to call a function with arguments ('see example below').
-            container_path (str, optional): Full path to a singularity container.  The function will be executed in by the defualt python version in the container.  All libraries and other requirements for the function must be available in the container. Defaults to None.  
-            testid (str, optional): An optional id which will be passed to the output database. Defaults to empty string.
-            description (str, optional): A descriptive string containing any desired information that is not automatically included.  Will be passed as-is to the database.  Defaults to empty string.
-            profile (boolean, optional): Turn off runtime profiling.  Defaults to True. 
-            dt_profile (float, optional): Change the profiling time interval.  Defaults to 1 second.
-
+            function (object): a function defined in the current scope, the function can 
+            be called with or without arguments.  Use lambda notation to call a function 
+            with arguments ('see example below').
+            
         Returns:
             bool: True if successful, False otherwise.
 
@@ -316,8 +342,8 @@ class Benchmark:
                 a = np.random.random(size=(1000,1000))
                 q, r = np.linalg.qr(a)
                 a2 = q.dot(r)
-        mybenchmark = Benchmark()
-        mybenchmark.execute_function( lambda: test_function(4), profile=True )
+        myprofile = Profiler()
+        myprofile.execute_function( lambda: test_function(4), profile=True )
 
         """
 

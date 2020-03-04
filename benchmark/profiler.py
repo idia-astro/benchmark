@@ -7,7 +7,7 @@ from time import sleep
 from multiprocessing import Process, Pipe, current_process
 
 from importlib import import_module
-
+import psutil
 def import_required(mod_name, error_msg):
     """Attempt to import a required dependency.
     Raises a RuntimeError if the requested module is not available.
@@ -19,7 +19,7 @@ def import_required(mod_name, error_msg):
 
 
 # Stores execution data for each task
-ResourceData = namedtuple('ResourceData', ('time', 'cpu', 'pmem', 'rmem', 'umem', 'smem', 'rio', 'wio'))
+ResourceData = namedtuple('ResourceData', ('time', 'cpu', 'pmem', 'rmem', 'umem', 'smem', 'rio', 'wio', 'nrio', 'nwio'))
 
 
 class ResourceProfiler(object):
@@ -129,6 +129,7 @@ class _Tracker(Process):
     def __init__(self, dt=1):
         psutil = import_required("psutil", "Tracking resource usage requires "
                                            "`psutil` to be installed")
+        print("psutil version: " + psutil.__version__)
         Process.__init__(self)
         self.daemon = True
         self.dt = dt
@@ -181,7 +182,9 @@ class _Tracker(Process):
                             smem += mem4
                             ior += io1
                             iow += io2
-                    data.append((tic, cpu, pmem, rmem / 1e6 , umem / 1e6, smem / 1e6, ior / 1e6, iow / 1e6))
+                    nio1 = psutil.net_io_counters().bytes_recv
+                    nio2 = psutil.net_io_counters().bytes_sent
+                    data.append((tic, cpu, pmem, rmem / 1e6 , umem / 1e6, smem / 1e6, ior / 1e6, iow / 1e6, nio1 / 1e6, nio2 / 1e6))
                     sleep(self.dt)
             elif msg == 'send_data':
                 self.child_conn.send(data)
